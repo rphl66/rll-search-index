@@ -17,6 +17,9 @@ const MAX_CHARS_PER_RECORD = 18000;
 // Concurrence raisonnable pour GitHub Actions + Squarespace
 const CONCURRENCY = 8;
 
+// Timeout fetch (évite qu'une page bloque tout le build)
+const FETCH_TIMEOUT_MS = 25000; // 25s
+
 function sha10(s){
   return crypto.createHash("sha1").update(String(s)).digest("hex").slice(0, 10);
 }
@@ -50,13 +53,71 @@ function getViewerTitleFromDvConfig($){
   }
 }
 
-function extractContent($){
-  // 1) Viewer EN-only hook
-  const dvz = $(".dvz-indexable-text").first();
-  if (dvz.length){
-    const t = cleanText(dvz.text());
-    if (t) return { content: t, section: "viewer" };
+// Extrait du texte indexable depuis le JSON dv-config (si présent dans le HTML)
+function extractViewerTextFromDvConfig($){
+  const cfgEls = $('script.dv-config[type="application/json"]');
+  if (!cfgEls.length) return "";
+
+  const chunks = [];
+
+  const looksLikeUrl = (s) =>
+    /^https?:\/\//i.test(s) ||
+    /raw\.githubusercontent\.com/i.test(s) ||
+    /\.(jpg|jpeg|png|webp|gif|pdf)(\?|$)/i.test(s);
+
+  const skipKey = (k) =>
+    /(url|href|src|front|back|img|image|thumb|gallery|hd_base|base|media|pdf|file|originals)/i.test(k);
+
+  const takeKey = (k) =>
+    /(title|artist|exhibition|dates|text|content|description|caption|remark|note|summary)/i.test(k);
+
+  function walk(node, keyHint = ""){
+    if (node == null) return;
+
+    if (typeof node === "string"){
+      const t = cleanText(node);
+      if (!t) return;
+      if (looksLikeUrl(t)) return;
+
+      if (keyHint){
+        if (skipKey(keyHint)) return;
+        if (!takeKey(keyHint) && t.length < 6) return;
+      }
+
+      chunks.push(t);
+      return;
+    }
+
+    if (Array.isArray(node)){
+      node.forEach(v => walk(v, keyHint));
+      return;
+    }
+
+    if (typeof node === "object"){
+      for (const [k, v] of Object.entries(node)){
+        walk(v, k);
+      }
+    }
   }
+
+  cfgEls.each((_, el) => {
+    try{
+      const cfg = JSON.parse($(el).text() || "{}");
+      walk(cfg, "");
+    }catch(_){}
+  });
+
+  return cleanText(chunks.join(" "));
+}
+
+function extractContent($){
+  // 1) Viewer (dvz-indexable-text OU dv-config JSON)
+  const dvz = $(".dvz-indexable-text").first();
+  const dvzText = dvz.length ? cleanText(dvz.text()) : "";
+  const cfgText = extractViewerTextFromDvConfig($);
+
+  const viewerText = cleanText([dvzText, cfgText].filter(Boolean).join(" "));
+  if (viewerText) return { content: viewerText, section: "viewer" };
 
   // 2) Popup content
   const pop = $(".jsl-popup-content").first();
@@ -89,14 +150,25 @@ function extractContent($){
 }
 
 async function fetchText(url){
-  const res = await fetch(url, {
-    headers: {
-      "user-agent": "rll-search-index-bot/1.0 (+github actions)",
-      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    }
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return await res.text();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try{
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "user-agent": "rll-search-index-bot/1.0 (+github actions)",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return await res.text();
+  }catch(e){
+    if (e?.name === "AbortError") throw new Error(`Timeout ${FETCH_TIMEOUT_MS}ms for ${url}`);
+    throw e;
+  }finally{
+    clearTimeout(timer);
+  }
 }
 
 async function fetchSitemapUrls(){
@@ -104,13 +176,11 @@ async function fetchSitemapUrls(){
   const parser = new XMLParser({ ignoreAttributes: false });
   const parsed = parser.parse(xml);
 
-  // Squarespace sitemap: urlset.url[].loc
   const urls = []
     .concat(parsed?.urlset?.url || [])
     .map(u => (typeof u === "string" ? u : u?.loc))
     .filter(Boolean);
 
-  // filtre /jeansellem/
   const filtered = urls
     .filter(u => {
       try{
@@ -151,42 +221,44 @@ async function main(){
   const limit = pLimit(CONCURRENCY);
   const records = [];
 
+  let done = 0;
+  const total = urls.length;
+
   await Promise.all(urls.map(url => limit(async () => {
     try{
       const html = await fetchText(url);
       const $ = cheerio.load(html);
 
-      // titre
       const dvTitle = getViewerTitleFromDvConfig($);
       const title = dvTitle || getTitle($) || url;
 
-      // contenu
       const { content, section } = extractContent($);
       if (!content) return;
 
-      // tags
       const year = guessYearFromUrl(url);
       const tags = [];
       if (section) tags.push(section);
       if (year) tags.push(`year:${year}`);
       tags.push("jeansellem");
 
-      const rec = {
+      records.push({
         id: `u:${sha10(url)}:${section}`,
         url,
         title,
         content: content.slice(0, MAX_CHARS_PER_RECORD),
         tags,
         section
-      };
-
-      records.push(rec);
+      });
     }catch(e){
       console.error(`Skip ${url}: ${e.message}`);
+    }finally{
+      done++;
+      if (done % 20 === 0 || done === total){
+        console.log(`Progress: ${done}/${total}`);
+      }
     }
   })));
 
-  // tri stable
   records.sort((a,b) => (a.url || "").localeCompare(b.url || ""));
 
   const outDir = path.resolve("docs");
