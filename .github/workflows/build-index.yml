@@ -3,7 +3,7 @@ name: Build Jeansellem Search Index
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 2 * * *"  # ~03:17 Zurich (UTC+1)
+    - cron: "17 6,12,18 * * *"  # 3x/day (UTC): 06:17, 12:17, 18:17
   push:
     branches: [ "main" ]
 
