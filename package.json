@@ -1,0 +1,12 @@
+{
+  "name": "rll-search-index",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:jeansellem": "node scripts/build-jeansellem-index.mjs"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "fast-xml-parser": "^4.5.0"
+  }
+}
