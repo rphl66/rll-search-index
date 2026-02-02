@@ -2,25 +2,43 @@ name: Build Jeansellem Search Index
 
 on:
   workflow_dispatch:
+
+  # ✅ 3×/jour (UTC) : 06:17, 12:17, 18:17
   schedule:
-    - cron: "17 6,12,18 * * *"  # 3x/day (UTC): 06:17, 12:17, 18:17
+    - cron: "17 6,12,18 * * *"
+
+  # ✅ Lance aussi à chaque push sur main (sauf push du bot, voir condition du job)
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: write
 
+# ✅ évite les runs en parallèle (ex: si GitHub est lent/queue)
+concurrency:
+  group: build-jeansellem-index
+  cancel-in-progress: true
+
 jobs:
   build:
+    # ✅ on skip uniquement si c’est un push fait par le bot (mais on garde schedule + manuel)
+    if: ${{ !(github.event_name == 'push' && github.actor == 'github-actions[bot]') }}
+
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install dependencies
         run: npm ci || npm install
@@ -32,10 +50,18 @@ jobs:
         run: |
           git config user.name "rll-index-bot"
           git config user.email "actions@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
           git add docs/index-jeansellem.js docs/index-meta.json
+
           if git diff --cached --quiet; then
             echo "No changes"
             exit 0
           fi
+
           git commit -m "Update jeansellem index"
-          git push
+
+          # ✅ évite les erreurs si quelqu’un a push entre temps
+          git pull --rebase origin main
+
+          git push origin HEAD:main
