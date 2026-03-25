@@ -110,6 +110,49 @@ function extractViewerTextFromDvConfig($){
   return cleanText(chunks.join(" "));
 }
 
+function stripNoiseFromClone($root){
+  const NOISE_SELECTORS = [
+    "script",
+    "style",
+    "noscript",
+    "template",
+    "svg",
+    "iframe",
+
+    "footer",
+    ".Footer",
+    "#footer",
+    "#rl-search",
+    "#rl-footer-slot",
+    ".rll-visit-footer",
+
+    "header",
+    ".Header",
+    "#header",
+    ".site-header",
+    "#custom-header-jeansellem",
+
+    ".contact-float-right",
+    ".contact-form-panel",
+    ".header-buttons",
+    ".selection-panel",
+    ".selection-button",
+
+    ".poster-hint",
+    ".jsl-trigger",
+
+    ".sqs-block-code",
+    "pre",
+    "code"
+  ];
+
+  NOISE_SELECTORS.forEach(sel => {
+    $root.find(sel).remove();
+  });
+
+  return $root;
+}
+
 function extractContent($){
   const chunks = [];
   let hasViewer = false;
@@ -144,19 +187,15 @@ function extractContent($){
     }
   }
 
-  // 3) Squarespace blocks
-  const blocks = $(".sqs-block-content");
-  if (blocks.length){
-    const t = cleanText(blocks.text());
-    if (t){
-      chunks.push(t);
-      hasPage = true;
-    }
-  }
-
-  // 4) Main fallback
-  const main = $("main");
+  // 3) Main page content, nettoyé
+  const main = $("main").first().clone();
   if (main.length){
+    stripNoiseFromClone(main);
+
+    // évite les doublons : viewer + popup déjà traités au-dessus
+    main.find(".dvz-indexable-text").remove();
+    main.find(".jsl-popup-content").remove();
+
     const t = cleanText(main.text());
     if (t){
       chunks.push(t);
@@ -164,7 +203,9 @@ function extractContent($){
     }
   }
 
-  const content = cleanText(chunks.join(" "));
+  // dédoublonnage simple
+  const uniqueChunks = [...new Set(chunks.filter(Boolean))];
+  const content = cleanText(uniqueChunks.join(" "));
 
   let section = "page";
   if (hasViewer) section = "viewer";
