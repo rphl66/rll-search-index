@@ -111,15 +111,23 @@ function extractViewerTextFromDvConfig($){
 }
 
 function extractContent($){
-  // 1) Viewer (dvz-indexable-text OU dv-config JSON)
+  const chunks = [];
+  let hasViewer = false;
+  let hasPopup = false;
+  let hasPage = false;
+
+  // 1) Viewer
   const dvz = $(".dvz-indexable-text").first();
   const dvzText = dvz.length ? cleanText(dvz.text()) : "";
   const cfgText = extractViewerTextFromDvConfig($);
-
   const viewerText = cleanText([dvzText, cfgText].filter(Boolean).join(" "));
-  if (viewerText) return { content: viewerText, section: "viewer" };
 
-  // 2) Popup content
+  if (viewerText){
+    chunks.push(viewerText);
+    hasViewer = true;
+  }
+
+  // 2) Popup
   const pop = $(".jsl-popup-content").first();
   if (pop.length){
     const meta = [
@@ -130,23 +138,40 @@ function extractContent($){
 
     const body = cleanText(pop.text());
     const joined = cleanText([meta, body].filter(Boolean).join(" "));
-    if (joined) return { content: joined, section: "popup" };
+    if (joined){
+      chunks.push(joined);
+      hasPopup = true;
+    }
   }
 
-  // 3) Fallback Squarespace blocks / main
+  // 3) Squarespace blocks
   const blocks = $(".sqs-block-content");
   if (blocks.length){
     const t = cleanText(blocks.text());
-    if (t) return { content: t, section: "page" };
+    if (t){
+      chunks.push(t);
+      hasPage = true;
+    }
   }
 
+  // 4) Main fallback
   const main = $("main");
   if (main.length){
     const t = cleanText(main.text());
-    if (t) return { content: t, section: "page" };
+    if (t){
+      chunks.push(t);
+      hasPage = true;
+    }
   }
 
-  return { content: "", section: "page" };
+  const content = cleanText(chunks.join(" "));
+
+  let section = "page";
+  if (hasViewer) section = "viewer";
+  else if (hasPopup) section = "popup";
+  else if (hasPage) section = "page";
+
+  return { content, section };
 }
 
 async function fetchText(url){
