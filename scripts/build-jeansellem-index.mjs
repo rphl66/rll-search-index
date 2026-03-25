@@ -411,11 +411,10 @@ async function main(){
   const outDir = path.resolve("docs");
   fs.mkdirSync(outDir, { recursive: true });
 
-  const outJs = path.join(outDir, "index-jeansellem.js");
   const payload = `/* AUTO-GENERATED — DO NOT EDIT
    Source: ${SITEMAP_URL}
    Built: ${new Date().toISOString()}
-*/\nwindow.__RLL_INDEX__ = ${JSON.stringify(records)};\n`;
+*/\nwindow.__RLL_INDEX__ = ${JSON.stringify(records, null, 2)};\n`;
 
   fs.writeFileSync(outJs, payload, "utf8");
 
