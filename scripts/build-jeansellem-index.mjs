@@ -31,6 +31,73 @@ function cleanText(s){
     .trim();
 }
 
+function htmlToText(s){
+  const raw = String(s || "");
+  if (!raw) return "";
+
+  if (!/[<>]/.test(raw)) return cleanText(raw);
+
+  try{
+    const $frag = cheerio.load(`<div>${raw}</div>`);
+    return cleanText($frag.root().text());
+  }catch(_){
+    return cleanText(raw.replace(/<[^>]+>/g, " "));
+  }
+}
+
+function normalizeForDedup(s){
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeCodeNoise(s){
+  const t = String(s || "");
+
+  if (!t) return true;
+
+  if (/(display:|position:|font-size:|line-height:|justify-content:|align-items:|grid-template|@media|function\s*\(|=>|const\s+|let\s+|var\s+|document\.|window\.|\.sqs-|#rl-|\.rl-|addEventListener\(|querySelector\()/i.test(t)) {
+    return true;
+  }
+
+  const punct = (t.match(/[{};]/g) || []).length;
+  if (punct > 12 && /[{}]/.test(t)) return true;
+
+  return false;
+}
+
+function uniqueTextBlocks(items){
+  const seen = new Set();
+
+  const base = items
+    .map(htmlToText)
+    .map(cleanText)
+    .filter(Boolean)
+    .filter(function(t){
+      const key = normalizeForDedup(t);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(function(t){
+      return { text: t, key: normalizeForDedup(t) };
+    });
+
+  const filtered = base.filter(function(item, i){
+    return !base.some(function(other, j){
+      if (i === j) return false;
+      if (other.key.length <= item.key.length) return false;
+      if (item.key.length < 40) return false;
+      return other.key.includes(item.key);
+    });
+  });
+
+  return filtered.map(function(x){ return x.text; });
+}
+
 function guessYearFromUrl(url){
   const m = String(url).match(/\/jeansellem\/(19[0-9]{2})(?:\/|$)/);
   return m ? m[1] : "";
@@ -59,6 +126,7 @@ function extractViewerTextFromDvConfig($){
   if (!cfgEls.length) return "";
 
   const chunks = [];
+  const seen = new Set();
 
   const looksLikeUrl = (s) =>
     /^https?:\/\//i.test(s) ||
@@ -69,22 +137,36 @@ function extractViewerTextFromDvConfig($){
     /(url|href|src|front|back|img|image|thumb|gallery|hd_base|base|media|pdf|file|originals)/i.test(k);
 
   const takeKey = (k) =>
-    /(title|artist|exhibition|dates|text|content|description|caption|remark|note|summary)/i.test(k);
+    /(title|artist|exhibition|dates|text|content|description|caption|remark|note|summary|comment|letter|press|publication|book|poem|biography)/i.test(k);
+
+  function pushChunk(value){
+    const t = htmlToText(value);
+    if (!t) return;
+    if (looksLikeUrl(t)) return;
+    if (looksLikeCodeNoise(t)) return;
+
+    const key = normalizeForDedup(t);
+    if (!key || seen.has(key)) return;
+
+    seen.add(key);
+    chunks.push(t);
+  }
 
   function walk(node, keyHint = ""){
     if (node == null) return;
 
     if (typeof node === "string"){
-      const t = cleanText(node);
+      const t = htmlToText(node);
       if (!t) return;
       if (looksLikeUrl(t)) return;
+      if (looksLikeCodeNoise(t)) return;
 
       if (keyHint){
         if (skipKey(keyHint)) return;
         if (!takeKey(keyHint) && t.length < 6) return;
       }
 
-      chunks.push(t);
+      pushChunk(t);
       return;
     }
 
@@ -107,7 +189,7 @@ function extractViewerTextFromDvConfig($){
     }catch(_){}
   });
 
-  return cleanText(chunks.join(" "));
+  return uniqueTextBlocks(chunks).join(" ");
 }
 
 function stripNoiseFromClone($root){
@@ -161,7 +243,7 @@ function extractContent($){
 
   // 1) Viewer
   const dvz = $(".dvz-indexable-text").first();
-  const dvzText = dvz.length ? cleanText(dvz.text()) : "";
+  const dvzText = dvz.length ? htmlToText(dvz.text()) : "";
   const cfgText = extractViewerTextFromDvConfig($);
   const viewerText = cleanText([dvzText, cfgText].filter(Boolean).join(" "));
 
@@ -179,7 +261,7 @@ function extractContent($){
       cleanText($(".jsl-dates").first().text())
     ].filter(Boolean).join(" — ");
 
-    const body = cleanText(pop.text());
+    const body = htmlToText(pop.html() || pop.text());
     const joined = cleanText([meta, body].filter(Boolean).join(" "));
     if (joined){
       chunks.push(joined);
@@ -192,19 +274,18 @@ function extractContent($){
   if (main.length){
     stripNoiseFromClone(main);
 
-    // évite les doublons : viewer + popup déjà traités au-dessus
+    // évite les doublons déjà gérés plus haut
     main.find(".dvz-indexable-text").remove();
     main.find(".jsl-popup-content").remove();
 
-    const t = cleanText(main.text());
+    const t = htmlToText(main.html() || main.text());
     if (t){
       chunks.push(t);
       hasPage = true;
     }
   }
 
-  // dédoublonnage simple
-  const uniqueChunks = [...new Set(chunks.filter(Boolean))];
+  const uniqueChunks = uniqueTextBlocks(chunks);
   const content = cleanText(uniqueChunks.join(" "));
 
   let section = "page";
