@@ -269,6 +269,35 @@ function extractContent($){
     }
   }
 
+  // 2bis) Press release stocké dans des attributs HTML
+  const attrCandidates = [
+    "[data-caption]",
+    "[data-press]",
+    "[data-popup]",
+    "[data-description]",
+    "[data-content]"
+  ];
+
+  attrCandidates.forEach(function(sel){
+    $(sel).each((_, el) => {
+      const vals = [
+        $(el).attr("data-caption"),
+        $(el).attr("data-press"),
+        $(el).attr("data-popup"),
+        $(el).attr("data-description"),
+        $(el).attr("data-content")
+      ].filter(Boolean);
+
+      vals.forEach(function(v){
+        const t = htmlToText(v);
+        if (t){
+          chunks.push(t);
+          hasPopup = true;
+        }
+      });
+    });
+  });
+
   // 3) Main page content, nettoyé
   const main = $("main").first().clone();
   if (main.length){
@@ -410,6 +439,8 @@ async function main(){
 
   const outDir = path.resolve("docs");
   fs.mkdirSync(outDir, { recursive: true });
+
+  const outJs = path.join(outDir, "index-jeansellem.js");
 
   const payload = `/* AUTO-GENERATED — DO NOT EDIT
    Source: ${SITEMAP_URL}
