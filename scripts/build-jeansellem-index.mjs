@@ -11,8 +11,8 @@ const ONLY_PATH_PREFIX = "/jeansellem/";
 // Limite de pages (sécurité pendant tests). Mets à null pour tout indexer.
 const LIMIT = null;
 
-// Coupe le contenu pour éviter un index énorme (FlexSearch en front).
-const MAX_CHARS_PER_RECORD = 18000;
+// Augmenté pour éviter de couper les press releases en fin de page.
+const MAX_CHARS_PER_RECORD = 60000;
 
 // Concurrence raisonnable pour GitHub Actions + Squarespace
 const CONCURRENCY = 8;
@@ -120,7 +120,6 @@ function getViewerTitleFromDvConfig($){
   }
 }
 
-// Extrait du texte indexable depuis le JSON dv-config (si présent dans le HTML)
 function extractViewerTextFromDvConfig($){
   const cfgEls = $('script.dv-config[type="application/json"]');
   if (!cfgEls.length) return "";
@@ -223,9 +222,13 @@ function stripNoiseFromClone($root){
     ".poster-hint",
     ".jsl-trigger",
 
-    // IMPORTANT:
-    // on ne supprime plus ".sqs-block-code"
-    // car le texte du popup / press release peut vivre dedans
+    ".archive-panel",
+    ".archive-toggle",
+    ".participants-panel",
+    ".participants-toggle",
+    ".menu-panel",
+    ".menu-toggle",
+
     "pre",
     "code"
   ];
@@ -248,7 +251,6 @@ function extractTextFromDataAttributes($){
       if (!/^data-/.test(name)) return;
       if (!value) return;
 
-      // ignore les attributs qui ressemblent à des URLs / images / fichiers
       if (/(url|href|src|img|image|thumb|gallery|file|pdf|media|hd|base)/i.test(name)) return;
 
       const t = htmlToText(value);
@@ -256,7 +258,6 @@ function extractTextFromDataAttributes($){
       if (/^https?:\/\//i.test(t)) return;
       if (looksLikeCodeNoise(t)) return;
 
-      // on ne garde que du texte qui ressemble à une vraie notice / prose
       if (t.length < 40 && !/[.!?:;]/.test(t)) return;
 
       const key = normalizeForDedup(t);
@@ -268,6 +269,39 @@ function extractTextFromDataAttributes($){
   });
 
   return uniqueTextBlocks(parts).join(" ");
+}
+
+function extractPressReleaseFromMain($){
+  const main = $("main").first().clone();
+  if (!main.length) return "";
+
+  stripNoiseFromClone(main);
+
+  const fullText = htmlToText(main.html() || main.text());
+  if (!fullText) return "";
+
+  const markers = [
+    "CLICK TO VIEW PRESS RELEASE",
+    "STAMP ART",
+    "Click the poster to read the press release"
+  ];
+
+  let start = -1;
+  for (const marker of markers){
+    const idx = fullText.indexOf(marker);
+    if (idx !== -1){
+      start = idx;
+      break;
+    }
+  }
+
+  if (start === -1) return "";
+
+  let extracted = fullText.slice(start);
+
+  extracted = extracted.replace(/^CLICK TO VIEW PRESS RELEASE\s*/i, "").trim();
+
+  return cleanText(extracted);
 }
 
 function extractContent($){
@@ -287,7 +321,7 @@ function extractContent($){
     hasViewer = true;
   }
 
-  // 2) Popup
+  // 2) Popup direct
   const pop = $(".jsl-popup-content").first();
   if (pop.length){
     const meta = [
@@ -304,19 +338,26 @@ function extractContent($){
     }
   }
 
-  // 2bis) Texte stocké dans des attributs data-*
+  // 2bis) Popup en data-*
   const dataAttrText = extractTextFromDataAttributes($);
   if (dataAttrText){
     chunks.push(dataAttrText);
     hasPopup = true;
   }
 
-  // 3) Main page content, nettoyé
+  // 2ter) Press release repéré dans le main :
+  // on le pousse AVANT le reste pour éviter qu’il soit coupé
+  const pressReleaseText = extractPressReleaseFromMain($);
+  if (pressReleaseText){
+    chunks.push(pressReleaseText);
+    hasPopup = true;
+  }
+
+  // 3) Main page content global
   const main = $("main").first().clone();
   if (main.length){
     stripNoiseFromClone(main);
 
-    // évite les doublons déjà gérés plus haut
     main.find(".dvz-indexable-text").remove();
     main.find(".jsl-popup-content").remove();
 
