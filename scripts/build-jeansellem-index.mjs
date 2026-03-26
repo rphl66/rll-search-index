@@ -323,13 +323,14 @@ function extractPageRecord($, url, fallbackTitle){
     main.html() || main.text()
   ]).join(" ");
 
-  if (!content) return null;
+  const cleaned = fixCollapsedWords(content || "");
+  if (!cleaned || cleaned.length < 80) return null;
 
   return makeRecord({
     id: `u:${sha10(url)}:page`,
     url,
     title: fallbackTitle || url,
-    content,
+    content: cleaned,
     section: "page",
     tags: buildTags(url, "page")
   });
@@ -355,7 +356,11 @@ async function main(){
 
           const popupRecords = extractPopupRecords($, url);
           const viewerRecords = extractViewerRecords($, url, pageTitle);
-          const pageRecord = extractPageRecord($, url, pageTitle);
+
+          // si la page a déjà des records structurés,
+          // on n'ajoute pas de gros record "page"
+          const hasStructuredRecords = popupRecords.length > 0 || viewerRecords.length > 0;
+          const pageRecord = hasStructuredRecords ? null : extractPageRecord($, url, pageTitle);
 
           popupRecords.forEach((r) => records.push(r));
           viewerRecords.forEach((r) => records.push(r));
