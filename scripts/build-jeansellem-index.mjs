@@ -234,7 +234,38 @@ function stripNoiseFromClone($root){
 
   return $root;
 }
+function extractTextFromDataAttributes($){
+  const parts = [];
+  const seen = new Set();
 
+  $("*").each((_, el) => {
+    const attribs = el.attribs || {};
+
+    Object.entries(attribs).forEach(([name, value]) => {
+      if (!/^data-/.test(name)) return;
+      if (!value) return;
+
+      // ignore les attributs qui ressemblent à des URLs / images / fichiers
+      if (/(url|href|src|img|image|thumb|gallery|file|pdf|media|hd|base)/i.test(name)) return;
+
+      const t = htmlToText(value);
+      if (!t) return;
+      if (/^https?:\/\//i.test(t)) return;
+      if (looksLikeCodeNoise(t)) return;
+
+      // on ne garde que du texte qui ressemble à une vraie notice / prose
+      if (t.length < 40 && !/[.!?:;]/.test(t)) return;
+
+      const key = normalizeForDedup(t);
+      if (!key || seen.has(key)) return;
+
+      seen.add(key);
+      parts.push(t);
+    });
+  });
+
+  return uniqueTextBlocks(parts).join(" ");
+}
 function extractContent($){
   const chunks = [];
   let hasViewer = false;
@@ -269,34 +300,12 @@ function extractContent($){
     }
   }
 
-  // 2bis) Press release stocké dans des attributs HTML
-  const attrCandidates = [
-    "[data-caption]",
-    "[data-press]",
-    "[data-popup]",
-    "[data-description]",
-    "[data-content]"
-  ];
-
-  attrCandidates.forEach(function(sel){
-    $(sel).each((_, el) => {
-      const vals = [
-        $(el).attr("data-caption"),
-        $(el).attr("data-press"),
-        $(el).attr("data-popup"),
-        $(el).attr("data-description"),
-        $(el).attr("data-content")
-      ].filter(Boolean);
-
-      vals.forEach(function(v){
-        const t = htmlToText(v);
-        if (t){
-          chunks.push(t);
-          hasPopup = true;
-        }
-      });
-    });
-  });
+  // 2bis) Texte stocké dans des attributs data-*
+  const dataAttrText = extractTextFromDataAttributes($);
+  if (dataAttrText){
+    chunks.push(dataAttrText);
+    hasPopup = true;
+  }
 
   // 3) Main page content, nettoyé
   const main = $("main").first().clone();
@@ -324,7 +333,6 @@ function extractContent($){
 
   return { content, section };
 }
-
 async function fetchText(url){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
