@@ -216,6 +216,15 @@ function buildTags(url, section){
   return tags;
 }
 
+function buildDeepUrl(url, type, index){
+  const u = new URL(url);
+  const params = new URLSearchParams({
+    open: String(type),
+    i: String(index)
+  });
+  return `${u.origin}${u.pathname}#${params.toString()}`;
+}
+
 function makeRecord({ id, url, title, content, section, tags }){
   const t = cleanText(title || url || "");
   const c = fixCollapsedWords(content || "");
@@ -261,7 +270,7 @@ function extractPopupRecords($, url){
 
     const rec = makeRecord({
       id: `u:${baseId}:popup:${i}`,
-      url,
+      url: buildDeepUrl(url, "popup", i),
       title,
       content,
       section: "popup",
@@ -300,7 +309,7 @@ function extractViewerRecords($, url, fallbackTitle){
 
     const rec = makeRecord({
       id: `u:${baseId}:viewer:${i}`,
-      url,
+      url: buildDeepUrl(url, "viewer", i),
       title,
       content,
       section: "viewer",
@@ -357,8 +366,6 @@ async function main(){
           const popupRecords = extractPopupRecords($, url);
           const viewerRecords = extractViewerRecords($, url, pageTitle);
 
-          // si la page a déjà des records structurés,
-          // on n'ajoute pas de gros record "page"
           const hasStructuredRecords = popupRecords.length > 0 || viewerRecords.length > 0;
           const pageRecord = hasStructuredRecords ? null : extractPageRecord($, url, pageTitle);
 
