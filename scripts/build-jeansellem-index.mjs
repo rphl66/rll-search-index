@@ -8,17 +8,10 @@ const SITE_ROOT = "https://www.raphaelleonardlevy.com";
 const SITEMAP_URL = `${SITE_ROOT}/sitemap.xml`;
 const ONLY_PATH_PREFIX = "/jeansellem/";
 
-// Limite de pages (sécurité pendant tests). Mets à null pour tout indexer.
 const LIMIT = null;
-
-// Augmenté pour éviter de couper les press releases en fin de page.
-const MAX_CHARS_PER_RECORD = 60000;
-
-// Concurrence raisonnable pour GitHub Actions + Squarespace
+const MAX_CHARS_PER_RECORD = 30000;
 const CONCURRENCY = 8;
-
-// Timeout fetch (évite qu'une page bloque tout le build)
-const FETCH_TIMEOUT_MS = 25000; // 25s
+const FETCH_TIMEOUT_MS = 25000;
 
 function sha10(s){
   return crypto.createHash("sha1").update(String(s)).digest("hex").slice(0, 10);
@@ -54,48 +47,19 @@ function normalizeForDedup(s){
     .trim();
 }
 
-function looksLikeCodeNoise(s){
-  const t = String(s || "");
-
-  if (!t) return true;
-
-  if (/(display:|position:|font-size:|line-height:|justify-content:|align-items:|grid-template|@media|function\s*\(|=>|const\s+|let\s+|var\s+|document\.|window\.|\.sqs-|#rl-|\.rl-|addEventListener\(|querySelector\()/i.test(t)) {
-    return true;
-  }
-
-  const punct = (t.match(/[{};]/g) || []).length;
-  if (punct > 12 && /[{}]/.test(t)) return true;
-
-  return false;
-}
-
 function uniqueTextBlocks(items){
   const seen = new Set();
 
-  const base = items
+  return items
     .map(htmlToText)
     .map(cleanText)
     .filter(Boolean)
-    .filter(function(t){
+    .filter((t) => {
       const key = normalizeForDedup(t);
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
-    })
-    .map(function(t){
-      return { text: t, key: normalizeForDedup(t) };
     });
-
-  const filtered = base.filter(function(item, i){
-    return !base.some(function(other, j){
-      if (i === j) return false;
-      if (other.key.length <= item.key.length) return false;
-      if (item.key.length < 40) return false;
-      return other.key.includes(item.key);
-    });
-  });
-
-  return filtered.map(function(x){ return x.text; });
 }
 
 function guessYearFromUrl(url){
@@ -109,296 +73,30 @@ function getTitle($){
   return cleanText(og || t || "");
 }
 
-function getViewerTitleFromDvConfig($){
-  const cfgEl = $('script.dv-config[type="application/json"]').first();
-  if (!cfgEl.length) return "";
-  try{
-    const cfg = JSON.parse(cfgEl.text() || "{}");
-    return cleanText(cfg?.title || "");
-  }catch(_){
-    return "";
-  }
-}
-
-function extractViewerTextFromDvConfig($){
-  const cfgEls = $('script.dv-config[type="application/json"]');
-  if (!cfgEls.length) return "";
-
-  const chunks = [];
-  const seen = new Set();
-
-  const looksLikeUrl = (s) =>
-    /^https?:\/\//i.test(s) ||
-    /raw\.githubusercontent\.com/i.test(s) ||
-    /\.(jpg|jpeg|png|webp|gif|pdf)(\?|$)/i.test(s);
-
-  const skipKey = (k) =>
-    /(url|href|src|front|back|img|image|thumb|gallery|hd_base|base|media|pdf|file|originals)/i.test(k);
-
-  const takeKey = (k) =>
-    /(title|artist|exhibition|dates|text|content|description|caption|remark|note|summary|comment|letter|press|publication|book|poem|biography)/i.test(k);
-
-  function pushChunk(value){
-    const t = htmlToText(value);
-    if (!t) return;
-    if (looksLikeUrl(t)) return;
-    if (looksLikeCodeNoise(t)) return;
-
-    const key = normalizeForDedup(t);
-    if (!key || seen.has(key)) return;
-
-    seen.add(key);
-    chunks.push(t);
-  }
-
-  function walk(node, keyHint = ""){
-    if (node == null) return;
-
-    if (typeof node === "string"){
-      const t = htmlToText(node);
-      if (!t) return;
-      if (looksLikeUrl(t)) return;
-      if (looksLikeCodeNoise(t)) return;
-
-      if (keyHint){
-        if (skipKey(keyHint)) return;
-        if (!takeKey(keyHint) && t.length < 6) return;
-      }
-
-      pushChunk(t);
-      return;
-    }
-
-    if (Array.isArray(node)){
-      node.forEach(v => walk(v, keyHint));
-      return;
-    }
-
-    if (typeof node === "object"){
-      for (const [k, v] of Object.entries(node)){
-        walk(v, k);
-      }
-    }
-  }
-
-  cfgEls.each((_, el) => {
-    try{
-      const cfg = JSON.parse($(el).text() || "{}");
-      walk(cfg, "");
-    }catch(_){}
-  });
-
-  return uniqueTextBlocks(chunks).join(" ");
-}
-
-function stripNoiseFromClone($root){
-  const NOISE_SELECTORS = [
-    "script",
-    "style",
-    "noscript",
-    "template",
-    "svg",
-    "iframe",
-
-    "footer",
-    ".Footer",
-    "#footer",
-    "#rl-search",
-    "#rl-footer-slot",
-    ".rll-visit-footer",
-
-    "header",
-    ".Header",
-    "#header",
-    ".site-header",
-    "#custom-header-jeansellem",
-
-    ".contact-float-right",
-    ".contact-form-panel",
-    ".header-buttons",
-    ".selection-panel",
-    ".selection-button",
-
-    ".poster-hint",
-    ".jsl-trigger",
-
-    ".archive-panel",
-    ".archive-toggle",
-    ".participants-panel",
-    ".participants-toggle",
-    ".menu-panel",
-    ".menu-toggle",
-
-    "pre",
-    "code"
-  ];
-
-  NOISE_SELECTORS.forEach(sel => {
-    $root.find(sel).remove();
-  });
-
-  return $root;
-}
-
-function extractTextFromDataAttributes($){
-  const parts = [];
-  const seen = new Set();
-
-  $("*").each((_, el) => {
-    const attribs = el.attribs || {};
-
-    Object.entries(attribs).forEach(([name, value]) => {
-      if (!/^data-/.test(name)) return;
-      if (!value) return;
-
-      if (/(url|href|src|img|image|thumb|gallery|file|pdf|media|hd|base)/i.test(name)) return;
-
-      const t = htmlToText(value);
-      if (!t) return;
-      if (/^https?:\/\//i.test(t)) return;
-      if (looksLikeCodeNoise(t)) return;
-
-      if (t.length < 40 && !/[.!?:;]/.test(t)) return;
-
-      const key = normalizeForDedup(t);
-      if (!key || seen.has(key)) return;
-
-      seen.add(key);
-      parts.push(t);
-    });
-  });
-
-  return uniqueTextBlocks(parts).join(" ");
-}
-
-function extractPressReleaseFromMain($){
-  const main = $("main").first().clone();
-  if (!main.length) return "";
-
-  stripNoiseFromClone(main);
-
-  const fullText = htmlToText(main.html() || main.text());
-  if (!fullText) return "";
-
-  const markers = [
-    "CLICK TO VIEW PRESS RELEASE",
-    "STAMP ART",
-    "Click the poster to read the press release"
-  ];
-
-  let start = -1;
-  for (const marker of markers){
-    const idx = fullText.indexOf(marker);
-    if (idx !== -1){
-      start = idx;
-      break;
-    }
-  }
-
-  if (start === -1) return "";
-
-  let extracted = fullText.slice(start);
-
-  extracted = extracted.replace(/^CLICK TO VIEW PRESS RELEASE\s*/i, "").trim();
-
-  return cleanText(extracted);
-}
-
-function extractContent($){
-  const chunks = [];
-  let hasViewer = false;
-  let hasPopup = false;
-  let hasPage = false;
-
-  // 1) Viewer
-  const dvz = $(".dvz-indexable-text").first();
-  const dvzText = dvz.length ? htmlToText(dvz.text()) : "";
-  const cfgText = extractViewerTextFromDvConfig($);
-  const viewerText = cleanText([dvzText, cfgText].filter(Boolean).join(" "));
-
-  if (viewerText){
-    chunks.push(viewerText);
-    hasViewer = true;
-  }
-
-  // 2) Popup direct
-  const pop = $(".jsl-popup-content").first();
-  if (pop.length){
-    const meta = [
-      cleanText($(".jsl-artist").first().text()),
-      cleanText($(".jsl-exhibition").first().text()),
-      cleanText($(".jsl-dates").first().text())
-    ].filter(Boolean).join(" — ");
-
-    const body = htmlToText(pop.html() || pop.text());
-    const joined = cleanText([meta, body].filter(Boolean).join(" "));
-    if (joined){
-      chunks.push(joined);
-      hasPopup = true;
-    }
-  }
-
-  // 2bis) Popup en data-*
-  const dataAttrText = extractTextFromDataAttributes($);
-  if (dataAttrText){
-    chunks.push(dataAttrText);
-    hasPopup = true;
-  }
-
-  // 2ter) Press release repéré dans le main :
-  // on le pousse AVANT le reste pour éviter qu’il soit coupé
-  const pressReleaseText = extractPressReleaseFromMain($);
-  if (pressReleaseText){
-    chunks.push(pressReleaseText);
-    hasPopup = true;
-  }
-
-  // 3) Main page content global
-  const main = $("main").first().clone();
-  if (main.length){
-    stripNoiseFromClone(main);
-
-    main.find(".dvz-indexable-text").remove();
-    main.find(".jsl-popup-content").remove();
-
-    const t = htmlToText(main.html() || main.text());
-    if (t){
-      chunks.push(t);
-      hasPage = true;
-    }
-  }
-
-  const uniqueChunks = uniqueTextBlocks(chunks);
-  const content = cleanText(uniqueChunks.join(" "));
-
-  let section = "page";
-  if (hasViewer) section = "viewer";
-  else if (hasPopup) section = "popup";
-  else if (hasPage) section = "page";
-
-  return { content, section };
-}
-
-async function fetchText(url){
+function fetchText(url){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-  try{
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "user-agent": "rll-search-index-bot/1.0 (+github actions)",
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+  return fetch(url, {
+    signal: controller.signal,
+    headers: {
+      "user-agent": "rll-search-index-bot/2.0 (+github actions)",
+      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      return res.text();
+    })
+    .catch((e) => {
+      if (e?.name === "AbortError"){
+        throw new Error(`Timeout ${FETCH_TIMEOUT_MS}ms for ${url}`);
       }
+      throw e;
+    })
+    .finally(() => {
+      clearTimeout(timer);
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-    return await res.text();
-  }catch(e){
-    if (e?.name === "AbortError") throw new Error(`Timeout ${FETCH_TIMEOUT_MS}ms for ${url}`);
-    throw e;
-  }finally{
-    clearTimeout(timer);
-  }
 }
 
 async function fetchSitemapUrls(){
@@ -408,11 +106,11 @@ async function fetchSitemapUrls(){
 
   const urls = []
     .concat(parsed?.urlset?.url || [])
-    .map(u => (typeof u === "string" ? u : u?.loc))
+    .map((u) => (typeof u === "string" ? u : u?.loc))
     .filter(Boolean);
 
   const filtered = urls
-    .filter(u => {
+    .filter((u) => {
       try{
         const p = new URL(u).pathname;
         return p.startsWith(ONLY_PATH_PREFIX);
@@ -428,19 +126,193 @@ async function fetchSitemapUrls(){
 function pLimit(concurrency){
   let active = 0;
   const queue = [];
+
   const next = () => {
     if (active >= concurrency) return;
     const job = queue.shift();
     if (!job) return;
+
     active++;
     job().finally(() => {
       active--;
       next();
     });
   };
-  return fn => new Promise((resolve, reject) => {
+
+  return (fn) => new Promise((resolve, reject) => {
     queue.push(() => fn().then(resolve, reject));
     next();
+  });
+}
+
+function stripNoiseFromClone($root){
+  const NOISE_SELECTORS = [
+    "script",
+    "style",
+    "noscript",
+    "template",
+    "svg",
+    "iframe",
+    "header",
+    ".Header",
+    "#header",
+    ".site-header",
+    "#custom-header-jeansellem",
+    "footer",
+    ".Footer",
+    "#footer",
+    "#rl-search",
+    "#rl-footer-slot",
+    ".rll-visit-footer",
+    ".contact-float-right",
+    ".contact-form-panel",
+    ".header-buttons",
+    ".selection-panel",
+    ".selection-button",
+    ".poster-hint",
+    ".jsl-trigger",
+    ".jsl-artwork",          // IMPORTANT : on retire tout le bloc popup de la page
+    ".jsl-popup-content",    // IMPORTANT : idem
+    ".event-archive-block",
+    ".dvz-indexable-text",
+    "button",
+    "audio",
+    "video",
+    "source",
+    "pre",
+    "code"
+  ];
+
+  NOISE_SELECTORS.forEach((sel) => {
+    $root.find(sel).remove();
+  });
+
+  return $root;
+}
+
+function buildTags(url, section){
+  const year = guessYearFromUrl(url);
+  const tags = ["jeansellem", section];
+  if (year) tags.push(`year:${year}`);
+  return tags;
+}
+
+function makeRecord({ id, url, title, content, section, tags }){
+  const t = cleanText(title || url || "");
+  const c = cleanText(content || "");
+
+  if (!c) return null;
+
+  return {
+    id,
+    url,
+    title: t,
+    content: c.slice(0, MAX_CHARS_PER_RECORD),
+    tags: Array.isArray(tags) ? tags : [],
+    section
+  };
+}
+
+function extractPopupRecords($, url){
+  const records = [];
+  const baseId = sha10(url);
+
+  $(".jsl-artwork[data-jsl]").each((i, el) => {
+    const $block = $(el);
+    const $pop = $block.find(".jsl-popup-content").first();
+    if (!$pop.length) return;
+
+    const artist =
+      cleanText($block.find(".jsl-artist").first().text()) ||
+      cleanText($block.attr("data-artist"));
+
+    const exhibition =
+      cleanText($block.find(".jsl-exhibition").first().text()) ||
+      cleanText($block.attr("data-exhibition"));
+
+    const dates =
+      cleanText($block.find(".jsl-dates").first().text()) ||
+      cleanText($block.attr("data-dates"));
+
+    const content = htmlToText($pop.html() || $pop.text());
+    if (!content) return;
+
+    const title = [artist, exhibition, dates].filter(Boolean).join(" ");
+    const tags = buildTags(url, "popup").concat(["press-release"]);
+
+    const rec = makeRecord({
+      id: `u:${baseId}:popup:${i}`,
+      url,
+      title,
+      content,
+      section: "popup",
+      tags
+    });
+
+    if (rec) records.push(rec);
+  });
+
+  return records;
+}
+
+function extractViewerRecords($, url, fallbackTitle){
+  const records = [];
+  const baseId = sha10(url);
+
+  $(".event-archive-block").each((i, el) => {
+    const $block = $(el);
+    const $txt = $block.find(".dvz-indexable-text").first();
+    if (!$txt.length) return;
+
+    let title = fallbackTitle || url;
+
+    const cfgEl = $block.find('script.dv-config[type="application/json"]').first();
+    if (cfgEl.length){
+      try{
+        const cfg = JSON.parse(cfgEl.text() || "{}");
+        if (cfg?.title) title = cleanText(cfg.title);
+      }catch(_){}
+    }
+
+    const content = htmlToText($txt.html() || $txt.text());
+    if (!content) return;
+
+    const tags = buildTags(url, "viewer").concat(["event-archive"]);
+
+    const rec = makeRecord({
+      id: `u:${baseId}:viewer:${i}`,
+      url,
+      title,
+      content,
+      section: "viewer",
+      tags
+    });
+
+    if (rec) records.push(rec);
+  });
+
+  return records;
+}
+
+function extractPageRecord($, url, fallbackTitle){
+  const main = $("main").first().clone();
+  if (!main.length) return null;
+
+  stripNoiseFromClone(main);
+
+  const content = uniqueTextBlocks([
+    main.html() || main.text()
+  ]).join(" ");
+
+  if (!content) return null;
+
+  return makeRecord({
+    id: `u:${sha10(url)}:page`,
+    url,
+    title: fallbackTitle || url,
+    content,
+    section: "page",
+    tags: buildTags(url, "page")
   });
 }
 
@@ -454,42 +326,38 @@ async function main(){
   let done = 0;
   const total = urls.length;
 
-  await Promise.all(urls.map(url => limit(async () => {
-    try{
-      const html = await fetchText(url);
-      const $ = cheerio.load(html);
+  await Promise.all(
+    urls.map((url) =>
+      limit(async () => {
+        try{
+          const html = await fetchText(url);
+          const $ = cheerio.load(html);
+          const pageTitle = getTitle($) || url;
 
-      const dvTitle = getViewerTitleFromDvConfig($);
-      const title = dvTitle || getTitle($) || url;
+          const popupRecords = extractPopupRecords($, url);
+          const viewerRecords = extractViewerRecords($, url, pageTitle);
+          const pageRecord = extractPageRecord($, url, pageTitle);
 
-      const { content, section } = extractContent($);
-      if (!content) return;
+          popupRecords.forEach((r) => records.push(r));
+          viewerRecords.forEach((r) => records.push(r));
+          if (pageRecord) records.push(pageRecord);
+        }catch(e){
+          console.error(`Skip ${url}: ${e.message}`);
+        }finally{
+          done++;
+          if (done % 20 === 0 || done === total){
+            console.log(`Progress: ${done}/${total}`);
+          }
+        }
+      })
+    )
+  );
 
-      const year = guessYearFromUrl(url);
-      const tags = [];
-      if (section) tags.push(section);
-      if (year) tags.push(`year:${year}`);
-      tags.push("jeansellem");
-
-      records.push({
-        id: `u:${sha10(url)}:${section}`,
-        url,
-        title,
-        content: content.slice(0, MAX_CHARS_PER_RECORD),
-        tags,
-        section
-      });
-    }catch(e){
-      console.error(`Skip ${url}: ${e.message}`);
-    }finally{
-      done++;
-      if (done % 20 === 0 || done === total){
-        console.log(`Progress: ${done}/${total}`);
-      }
-    }
-  })));
-
-  records.sort((a,b) => (a.url || "").localeCompare(b.url || ""));
+  records.sort((a, b) => {
+    const u = (a.url || "").localeCompare(b.url || "");
+    if (u !== 0) return u;
+    return (a.id || "").localeCompare(b.id || "");
+  });
 
   const outDir = path.resolve("docs");
   fs.mkdirSync(outDir, { recursive: true });
@@ -508,14 +376,22 @@ async function main(){
     site_root: SITE_ROOT,
     sitemap: SITEMAP_URL,
     count: records.length,
-    sections: records.reduce((acc,r)=>{ acc[r.section]=(acc[r.section]||0)+1; return acc; }, {})
+    sections: records.reduce((acc, r) => {
+      acc[r.section] = (acc[r.section] || 0) + 1;
+      return acc;
+    }, {})
   };
-  fs.writeFileSync(path.join(outDir, "index-meta.json"), JSON.stringify(meta, null, 2), "utf8");
+
+  fs.writeFileSync(
+    path.join(outDir, "index-meta.json"),
+    JSON.stringify(meta, null, 2),
+    "utf8"
+  );
 
   console.log(`Wrote: ${outJs} (${records.length} records)`);
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
