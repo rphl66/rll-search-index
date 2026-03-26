@@ -24,6 +24,24 @@ function cleanText(s){
     .trim();
 }
 
+function slugify(s){
+  return cleanText(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function popupKeyFromParts(artist, exhibition, dates){
+  const parts = [artist, exhibition, dates]
+    .map(slugify)
+    .filter(Boolean);
+
+  return parts.join("__");
+}
+
 function htmlToText(s){
   const raw = String(s || "");
   if (!raw) return "";
@@ -216,12 +234,17 @@ function buildTags(url, section){
   return tags;
 }
 
-function buildDeepUrl(url, type, index){
+function buildDeepUrl(url, paramsObj){
   const u = new URL(url);
-  const params = new URLSearchParams({
-    open: String(type),
-    i: String(index)
+  const params = new URLSearchParams();
+
+  Object.keys(paramsObj || {}).forEach((key) => {
+    const val = paramsObj[key];
+    if (val != null && String(val).trim() !== ""){
+      params.set(key, String(val));
+    }
   });
+
   return `${u.origin}${u.pathname}#${params.toString()}`;
 }
 
@@ -267,10 +290,11 @@ function extractPopupRecords($, url){
 
     const title = [artist, exhibition, dates].filter(Boolean).join(" ");
     const tags = buildTags(url, "popup").concat(["press-release"]);
+    const popupKey = popupKeyFromParts(artist, exhibition, dates) || `popup-${i}`;
 
     const rec = makeRecord({
       id: `u:${baseId}:popup:${i}`,
-      url: buildDeepUrl(url, "popup", i),
+      url: buildDeepUrl(url, { open: "popup", k: popupKey }),
       title,
       content,
       section: "popup",
@@ -309,7 +333,7 @@ function extractViewerRecords($, url, fallbackTitle){
 
     const rec = makeRecord({
       id: `u:${baseId}:viewer:${i}`,
-      url: buildDeepUrl(url, "viewer", i),
+      url: buildDeepUrl(url, { open: "viewer", i }),
       title,
       content,
       section: "viewer",
