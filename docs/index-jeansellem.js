@@ -1,6 +1,6 @@
 /* AUTO-GENERATED — DO NOT EDIT
    Source: https://www.raphaelleonardlevy.com/sitemap.xml
-   Built: 2026-03-26T10:30:43.039Z
+   Built: 2026-03-26T10:51:15.894Z
 */
 window.__RLL_INDEX__ = [
   {
@@ -1069,17 +1069,6 @@ window.__RLL_INDEX__ = [
       "press-release"
     ],
     "section": "popup"
-  },
-  {
-    "id": "u:fea4ecb9e9:page",
-    "url": "https://www.raphaelleonardlevy.com/jeansellem/genesis",
-    "title": "GENESIS | Raphaël Léonard Lévy",
-    "content": "GENESIS",
-    "tags": [
-      "jeansellem",
-      "page"
-    ],
-    "section": "page"
   },
   {
     "id": "u:0ee98a9a18:popup:0",
@@ -2999,17 +2988,6 @@ window.__RLL_INDEX__ = [
       "press-release"
     ],
     "section": "popup"
-  },
-  {
-    "id": "u:1f2661fd2e:page",
-    "url": "https://www.raphaelleonardlevy.com/jeansellem/to-artists-and-writers-in-scandinavia",
-    "title": "TO ARTISTS AND WRITERS IN SCANDINAVIA | Raphaël Léonard Lévy",
-    "content": "24.09 - 13.10.1971 SANDRO ADRIANI",
-    "tags": [
-      "jeansellem",
-      "page"
-    ],
-    "section": "page"
   },
   {
     "id": "u:b3331d159b:popup:0",
