@@ -31,11 +31,30 @@ function htmlToText(s){
   if (!/[<>]/.test(raw)) return cleanText(raw);
 
   try{
-    const $frag = cheerio.load(`<div>${raw}</div>`);
+    const prepared = raw
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/(p|div|section|article|header|footer|li|ul|ol|h1|h2|h3|h4|h5|h6|blockquote|pre|table|tr|td|th)>/gi, " ")
+      .replace(/<(p|div|section|article|header|footer|li|ul|ol|h1|h2|h3|h4|h5|h6|blockquote|pre|table|tr|td|th)\b[^>]*>/gi, " ");
+
+    const $frag = cheerio.load(`<div>${prepared}</div>`);
     return cleanText($frag.root().text());
   }catch(_){
-    return cleanText(raw.replace(/<[^>]+>/g, " "));
+    return cleanText(
+      raw
+        .replace(/<br\s*\/?>/gi, " ")
+        .replace(/<\/(p|div|section|article|header|footer|li|ul|ol|h1|h2|h3|h4|h5|h6|blockquote|pre|table|tr|td|th)>/gi, " ")
+        .replace(/<(p|div|section|article|header|footer|li|ul|ol|h1|h2|h3|h4|h5|h6|blockquote|pre|table|tr|td|th)\b[^>]*>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+    );
   }
+}
+
+function fixCollapsedWords(s){
+  return cleanText(
+    String(s || "")
+      .replace(/([.,;:!?])([A-Za-zÀ-ÿ])/g, "$1 $2")
+      .replace(/(["”])([A-Za-zÀ-ÿ])/g, "$1 $2")
+  );
 }
 
 function normalizeForDedup(s){
@@ -171,8 +190,8 @@ function stripNoiseFromClone($root){
     ".selection-button",
     ".poster-hint",
     ".jsl-trigger",
-    ".jsl-artwork",          // IMPORTANT : on retire tout le bloc popup de la page
-    ".jsl-popup-content",    // IMPORTANT : idem
+    ".jsl-artwork",
+    ".jsl-popup-content",
     ".event-archive-block",
     ".dvz-indexable-text",
     "button",
@@ -199,7 +218,7 @@ function buildTags(url, section){
 
 function makeRecord({ id, url, title, content, section, tags }){
   const t = cleanText(title || url || "");
-  const c = cleanText(content || "");
+  const c = fixCollapsedWords(content || "");
 
   if (!c) return null;
 
