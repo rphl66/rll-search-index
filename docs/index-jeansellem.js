@@ -1,6 +1,6 @@
 /* AUTO-GENERATED — DO NOT EDIT
    Source: https://www.raphaelleonardlevy.com/sitemap.xml
-   Built: 2026-03-26T10:51:15.894Z
+   Built: 2026-03-26T11:08:01.139Z
 */
 window.__RLL_INDEX__ = [
   {
