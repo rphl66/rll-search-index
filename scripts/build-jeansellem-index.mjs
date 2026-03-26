@@ -223,7 +223,9 @@ function stripNoiseFromClone($root){
     ".poster-hint",
     ".jsl-trigger",
 
-    ".sqs-block-code",
+    // IMPORTANT:
+    // on ne supprime plus ".sqs-block-code"
+    // car le texte du popup / press release peut vivre dedans
     "pre",
     "code"
   ];
@@ -234,6 +236,7 @@ function stripNoiseFromClone($root){
 
   return $root;
 }
+
 function extractTextFromDataAttributes($){
   const parts = [];
   const seen = new Set();
@@ -266,6 +269,7 @@ function extractTextFromDataAttributes($){
 
   return uniqueTextBlocks(parts).join(" ");
 }
+
 function extractContent($){
   const chunks = [];
   let hasViewer = false;
@@ -333,6 +337,7 @@ function extractContent($){
 
   return { content, section };
 }
+
 async function fetchText(url){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -464,7 +469,7 @@ async function main(){
     count: records.length,
     sections: records.reduce((acc,r)=>{ acc[r.section]=(acc[r.section]||0)+1; return acc; }, {})
   };
-  fs.writeFileSync(path.join(outDir, "index-meta.json"), JSON.stringify(meta,null,2), "utf8");
+  fs.writeFileSync(path.join(outDir, "index-meta.json"), JSON.stringify(meta, null, 2), "utf8");
 
   console.log(`Wrote: ${outJs} (${records.length} records)`);
 }
