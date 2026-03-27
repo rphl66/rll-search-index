@@ -363,13 +363,13 @@ function extractPopupRecords($, url) {
     const tags = buildTags(url, "popup").concat(["press-release"]);
 
     const rec = makeRecord({
-      id: `u:${baseId}:popup:${i}`,
-      url: buildDeepUrl(url, { open: "popup", k: popupKey }),
-      title,
-      content,
-      section: "popup",
-      tags,
-    });
+  id: `u:${baseId}:viewer:${i}`,
+  url: buildDeepUrl(url, { open: "viewer", i: String(i) }),
+  title,
+  content,
+  section: "viewer",
+  tags,
+});
 
     if (rec) records.push(rec);
   });
