@@ -9,7 +9,7 @@ const SITEMAP_URL = `${SITE_ROOT}/sitemap.xml`;
 const ONLY_PATH_PREFIX = "/jeansellem/";
 
 const LIMIT = null;
-const MAX_CHARS_PER_RECORD = 18000;
+const MAX_CHARS_PER_RECORD = 30000;
 const CONCURRENCY = 8;
 const FETCH_TIMEOUT_MS = 25000;
 
@@ -118,37 +118,63 @@ function getViewerTitleFromCfgText(txt) {
 function extractViewerTextFromConfigNode($node) {
   if (!$node || !$node.length) return "";
 
-  const chunks = [];
+  const buckets = { core: [], fr: [], de: [], en: [] };
 
   const looksLikeUrl = (s) =>
     /^https?:\/\//i.test(s) ||
     /raw\.githubusercontent\.com/i.test(s) ||
     /\.(jpg|jpeg|png|webp|gif|pdf)(\?|$)/i.test(s);
 
-  const skipKey = (k) =>
-    /(url|href|src|front|back|img|image|thumb|gallery|hd_base|base|media|pdf|file|originals)/i.test(
-      k
+  const keepKey = (k) =>
+    /^(title|artist|exhibition|dates|text|text_en|text_fr|text_de|text_back|text_back_en|text_back_fr|text_back_de|content|content_en|content_fr|content_de|description|description_en|description_fr|description_de|caption|caption_en|caption_fr|caption_de|remark|remark_en|remark_fr|remark_de|note|note_en|note_fr|note_de|summary|summary_en|summary_fr|summary_de)$/i.test(
+      String(k || "").trim()
     );
 
-  const takeKey = (k) =>
-    /(title|artist|exhibition|dates|text|content|description|caption|remark|note|summary)/i.test(
-      k
+  const skipKey = (k) =>
+    /^(url|href|src|front|back|img|image|thumb|gallery|hd_base|base|media|pdf|file|originals)$/i.test(
+      String(k || "").trim()
     );
+
+  function bucketForKey(k) {
+    const key = String(k || "").trim().toLowerCase();
+    if (/_fr$/.test(key)) return "fr";
+    if (/_de$/.test(key)) return "de";
+    if (/_en$/.test(key)) return "en";
+    return "core";
+  }
+
+  function pushText(value, bucketName) {
+    const txt = htmlToText(value);
+    if (!txt) return;
+    if (looksLikeUrl(txt)) return;
+    buckets[bucketName].push(txt);
+  }
 
   function walk(node, keyHint = "") {
     if (node == null) return;
 
     if (typeof node === "string") {
-      const t = cleanText(node);
-      if (!t) return;
-      if (looksLikeUrl(t)) return;
+      const raw = String(node || "");
+      if (!raw.trim()) return;
 
       if (keyHint) {
-        if (skipKey(keyHint)) return;
-        if (!takeKey(keyHint) && t.length < 6) return;
+        if (keepKey(keyHint)) {
+          pushText(raw, bucketForKey(keyHint));
+          return;
+        }
+
+        if (skipKey(keyHint)) {
+          return;
+        }
+
+        const shortTxt = htmlToText(raw);
+        if (shortTxt.length < 6) return;
+
+        pushText(raw, "core");
+        return;
       }
 
-      chunks.push(t);
+      pushText(raw, "core");
       return;
     }
 
@@ -164,12 +190,44 @@ function extractViewerTextFromConfigNode($node) {
     }
   }
 
+  function packBucket(arr, maxChars) {
+    let out = "";
+
+    for (const part of arr) {
+      const txt = cleanText(part);
+      if (!txt) continue;
+
+      const next = out ? `${out} ${txt}` : txt;
+
+      if (next.length <= maxChars) {
+        out = next;
+      } else {
+        const room = maxChars - out.length - (out ? 1 : 0);
+        if (room > 40) {
+          out += (out ? " " : "") + txt.slice(0, room);
+        }
+        break;
+      }
+    }
+
+    return cleanText(out);
+  }
+
   try {
     const cfg = JSON.parse($node.text() || "{}");
     walk(cfg, "");
   } catch (_) {}
 
-  return cleanText(chunks.join(" "));
+  return cleanText(
+    [
+      packBucket(buckets.core, 4000),
+      packBucket(buckets.fr, 8000),
+      packBucket(buckets.de, 8000),
+      packBucket(buckets.en, 8000),
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
 }
 
 function fetchText(url) {
@@ -180,7 +238,8 @@ function fetchText(url) {
     signal: controller.signal,
     headers: {
       "user-agent": "rll-search-index-bot/2.0 (+github actions)",
-      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     },
   })
     .then((res) => {
@@ -277,7 +336,9 @@ function extractPopupRecords($, url) {
     if (!$pop.length) return;
 
     const artist = cleanText(
-      $card.find(".jsl-artist").first().text() || $card.attr("data-artist") || ""
+      $card.find(".jsl-artist").first().text() ||
+        $card.attr("data-artist") ||
+        ""
     );
 
     const exhibition = cleanText(
@@ -291,7 +352,9 @@ function extractPopupRecords($, url) {
     );
 
     const title =
-      [artist, exhibition, dates].filter(Boolean).join(" ") || getTitle($) || url;
+      [artist, exhibition, dates].filter(Boolean).join(" ") ||
+      getTitle($) ||
+      url;
 
     const content = htmlToText($pop.html() || $pop.text());
     if (!content) return;
@@ -325,11 +388,17 @@ function extractViewerRecords($, url, fallbackTitle) {
 
     const $cfg = $block.find('script.dv-config[type="application/json"]').first();
     const txtB = extractViewerTextFromConfigNode($cfg);
+   
+    // Priorité au JSON multilingue.
+    // Le texte DOM visible ne sert que de complément court.
+    const content = txtB
+      ? cleanText([txtB, txtA.slice(0, 2500)].filter(Boolean).join(" "))
+      : txtA;
 
-    const content = cleanText([txtA, txtB].filter(Boolean).join(" "));
     if (!content) return;
 
-    const title = getViewerTitleFromCfgText($cfg.text() || "") || fallbackTitle || url;
+    const title =
+      getViewerTitleFromCfgText($cfg.text() || "") || fallbackTitle || url;
     const tags = buildTags(url, "viewer").concat(["event-archive"]);
 
     const rec = makeRecord({
