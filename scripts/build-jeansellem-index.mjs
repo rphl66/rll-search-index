@@ -348,7 +348,9 @@ function extractPopupRecords($, url) {
     );
 
     const dates = cleanText(
-      $card.find(".jsl-dates").first().text() || $card.attr("data-dates") || ""
+      $card.find(".jsl-dates").first().text() ||
+        $card.attr("data-dates") ||
+        ""
     );
 
     const title =
@@ -359,17 +361,19 @@ function extractPopupRecords($, url) {
     const content = htmlToText($pop.html() || $pop.text());
     if (!content) return;
 
-    const popupKey = popupKeyFromParts(artist, exhibition, dates) || `popup-${i}`;
+    const popupKey =
+      popupKeyFromParts(artist, exhibition, dates) || `popup-${i}`;
+
     const tags = buildTags(url, "popup").concat(["press-release"]);
 
     const rec = makeRecord({
-  id: `u:${baseId}:viewer:${i}`,
-  url: buildDeepUrl(url, { open: "viewer", i: String(i) }),
-  title,
-  content,
-  section: "viewer",
-  tags,
-});
+      id: `u:${baseId}:popup:${i}`,
+      url: buildDeepUrl(url, { open: "popup", k: popupKey }),
+      title,
+      content,
+      section: "popup",
+      tags,
+    });
 
     if (rec) records.push(rec);
   });
@@ -383,27 +387,40 @@ function extractViewerRecords($, url, fallbackTitle) {
 
   $(".event-archive-block").each((i, el) => {
     const $block = $(el);
+
+    // texte visible déjà prévu pour l’index
     const $txt = $block.find(".dvz-indexable-text").first();
     const txtA = $txt.length ? cleanText($txt.text()) : "";
 
-    const $cfg = $block.find('script.dv-config[type="application/json"]').first();
+    // config structurée si elle existe
+    const $cfg = $block.find(".dv-config").first();
     const txtB = extractViewerTextFromConfigNode($cfg);
-   
-    // Priorité au JSON multilingue.
-    // Le texte DOM visible ne sert que de complément court.
-    const content = txtB
-      ? cleanText([txtB, txtA.slice(0, 2500)].filter(Boolean).join(" "))
-      : txtA;
+
+    // FALLBACK IMPORTANT :
+    // on prend aussi le texte brut du bloc entier,
+    // car les champs text_fr / text_de sont visiblement présents dans le HTML
+    const rawBlockText = htmlToText($block.html() || "");
+
+    const content = cleanText(
+      [
+        txtB,
+        txtA ? txtA.slice(0, 2500) : "",
+        rawBlockText ? rawBlockText.slice(0, 12000) : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
 
     if (!content) return;
 
     const title =
       getViewerTitleFromCfgText($cfg.text() || "") || fallbackTitle || url;
+
     const tags = buildTags(url, "viewer").concat(["event-archive"]);
 
     const rec = makeRecord({
       id: `u:${baseId}:viewer:${i}`,
-      url,
+      url: buildDeepUrl(url, { open: "viewer", i: String(i) }),
       title,
       content,
       section: "viewer",
