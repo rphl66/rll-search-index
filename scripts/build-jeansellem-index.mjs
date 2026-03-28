@@ -230,6 +230,36 @@ function extractViewerTextFromConfigNode($node) {
   );
 }
 
+function extractViewerTextFromObject(obj) {
+  return extractViewerTextFromConfigNode({
+    length: 1,
+    text: function () {
+      return JSON.stringify(obj || {});
+    }
+  });
+}
+
+function getViewerPageTitle(page, cfgTitle, fallbackTitle) {
+  if (!page || typeof page !== "object") return cfgTitle || fallbackTitle || "";
+
+  const title = cleanText(
+    page.title ||
+    page.page_title ||
+    page.head ||
+    page.header ||
+    ""
+  );
+
+  if (title) return title;
+
+  const artist = cleanText(page.artist || "");
+  const exhibition = cleanText(page.exhibition || "");
+  const dates = cleanText(page.date || page.dates || "");
+
+  const composed = cleanText([dates, artist, exhibition].filter(Boolean).join(" "));
+  return composed || cfgTitle || fallbackTitle || "";
+}
+
 function fetchText(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -387,18 +417,47 @@ function extractViewerRecords($, url, fallbackTitle) {
 
   $(".event-archive-block").each((i, el) => {
     const $block = $(el);
-
-    // texte visible déjà prévu pour l’index
     const $txt = $block.find(".dvz-indexable-text").first();
     const txtA = $txt.length ? cleanText($txt.text()) : "";
 
-    // config structurée si elle existe
     const $cfg = $block.find(".dv-config").first();
-    const txtB = extractViewerTextFromConfigNode($cfg);
 
-    // FALLBACK IMPORTANT :
-    // on prend aussi le texte brut du bloc entier,
-    // car les champs text_fr / text_de sont visiblement présents dans le HTML
+    let cfgObj = {};
+    try {
+      cfgObj = JSON.parse($cfg.text() || "{}");
+    } catch (_) {
+      cfgObj = {};
+    }
+
+    const cfgTitle =
+      getViewerTitleFromCfgText($cfg.text() || "") || fallbackTitle || url;
+
+    const viewerUrl = buildDeepUrl(url, { open: "viewer", i: String(i) });
+    const tags = buildTags(url, "viewer").concat(["event-archive"]);
+
+    // CAS PRINCIPAL : un record par page interne du viewer
+    if (Array.isArray(cfgObj.pages) && cfgObj.pages.length) {
+      cfgObj.pages.forEach((page, pageIndex) => {
+        const pageText = extractViewerTextFromObject(page);
+        if (!pageText) return;
+
+        const rec = makeRecord({
+          id: `u:${baseId}:viewer:${i}:p:${pageIndex}`,
+          url: viewerUrl,
+          title: getViewerPageTitle(page, cfgTitle, fallbackTitle),
+          content: pageText,
+          section: "viewer",
+          tags,
+        });
+
+        if (rec) records.push(rec);
+      });
+
+      return;
+    }
+
+    // FALLBACK : ancien mode agrégé si pas de cfg.pages
+    const txtB = extractViewerTextFromConfigNode($cfg);
     const rawBlockText = htmlToText($block.html() || "");
 
     const content = cleanText(
@@ -413,15 +472,10 @@ function extractViewerRecords($, url, fallbackTitle) {
 
     if (!content) return;
 
-    const title =
-      getViewerTitleFromCfgText($cfg.text() || "") || fallbackTitle || url;
-
-    const tags = buildTags(url, "viewer").concat(["event-archive"]);
-
     const rec = makeRecord({
       id: `u:${baseId}:viewer:${i}`,
-      url: buildDeepUrl(url, { open: "viewer", i: String(i) }),
-      title,
+      url: viewerUrl,
+      title: cfgTitle,
       content,
       section: "viewer",
       tags,
