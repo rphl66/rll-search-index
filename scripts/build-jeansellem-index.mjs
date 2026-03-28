@@ -471,25 +471,30 @@ function extractViewerRecords($, url, fallbackTitle) {
 
     // CAS PRINCIPAL : un record par page interne du viewer
     if (Array.isArray(cfgObj.pages) && cfgObj.pages.length) {
-      cfgObj.pages.forEach((page, pageIndex) => {
-        const pageText = extractViewerTextFromObject(page);
-        if (!pageText) return;
+  cfgObj.pages.forEach((page, pageIndex) => {
+    const pageText = extractViewerTextFromObject(page);
+    if (!pageText) return;
 
-        const rec = makeRecord({
-          id: `u:${baseId}:viewer:${i}:p:${pageIndex}`,
-          url: viewerUrl,
-          title: getViewerPageTitle(page, cfgTitle, fallbackTitle),
-          content: pageText,
-          section: "viewer",
-          tags,
-        });
+    const pageUrl = buildDeepUrl(url, {
+      open: "viewer",
+      i: String(i),
+      p: String(pageIndex)
+    });
 
-        if (rec) records.push(rec);
-      });
+    const rec = makeRecord({
+      id: `u:${baseId}:viewer:${i}:p:${pageIndex}`,
+      url: pageUrl,
+      title: getViewerPageTitle(page, cfgTitle, fallbackTitle),
+      content: pageText,
+      section: "viewer",
+      tags,
+    });
 
-      return;
-    }
+    if (rec) records.push(rec);
+  });
 
+  return;
+}
     // FALLBACK : mode agrégé si on ne parvient pas à lire cfg.pages
     const txtB = cfgRaw
       ? extractViewerTextFromConfigNode({
