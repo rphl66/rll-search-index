@@ -244,10 +244,10 @@ function getViewerPageTitle(page, cfgTitle, fallbackTitle) {
 
   const title = cleanText(
     page.title ||
-    page.page_title ||
-    page.head ||
-    page.header ||
-    ""
+      page.page_title ||
+      page.head ||
+      page.header ||
+      ""
   );
 
   if (title) return title;
@@ -256,8 +256,47 @@ function getViewerPageTitle(page, cfgTitle, fallbackTitle) {
   const exhibition = cleanText(page.exhibition || "");
   const dates = cleanText(page.date || page.dates || "");
 
-  const composed = cleanText([dates, artist, exhibition].filter(Boolean).join(" "));
+  const composed = cleanText(
+    [dates, artist, exhibition].filter(Boolean).join(" ")
+  );
+
   return composed || cfgTitle || fallbackTitle || "";
+}
+
+function readViewerConfigData($, $block) {
+  const rawCandidates = [];
+
+  function pushRaw(txt) {
+    const raw = String(txt || "").trim();
+    if (!raw) return;
+    if (rawCandidates.indexOf(raw) === -1) rawCandidates.push(raw);
+  }
+
+  pushRaw($block.find('script.dv-config[type="application/json"]').first().text());
+  pushRaw($block.find(".dv-config").first().text());
+
+  $block.find("script").each((_, el) => {
+    const txt = String($(el).text() || "");
+    if (
+      /"pages"\s*:/.test(txt) ||
+      /"text_fr"\s*:/.test(txt) ||
+      /"text_de"\s*:/.test(txt) ||
+      /"text_en"\s*:/.test(txt)
+    ) {
+      pushRaw(txt);
+    }
+  });
+
+  for (const raw of rawCandidates) {
+    try {
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj === "object") {
+        return { raw, obj };
+      }
+    } catch (_) {}
+  }
+
+  return { raw: "", obj: {} };
 }
 
 function fetchText(url) {
@@ -420,17 +459,12 @@ function extractViewerRecords($, url, fallbackTitle) {
     const $txt = $block.find(".dvz-indexable-text").first();
     const txtA = $txt.length ? cleanText($txt.text()) : "";
 
-    const $cfg = $block.find(".dv-config").first();
-
-    let cfgObj = {};
-    try {
-      cfgObj = JSON.parse($cfg.text() || "{}");
-    } catch (_) {
-      cfgObj = {};
-    }
+    const cfgData = readViewerConfigData($, $block);
+    const cfgObj = cfgData.obj || {};
+    const cfgRaw = cfgData.raw || "";
 
     const cfgTitle =
-      getViewerTitleFromCfgText($cfg.text() || "") || fallbackTitle || url;
+      getViewerTitleFromCfgText(cfgRaw) || fallbackTitle || url;
 
     const viewerUrl = buildDeepUrl(url, { open: "viewer", i: String(i) });
     const tags = buildTags(url, "viewer").concat(["event-archive"]);
@@ -456,15 +490,23 @@ function extractViewerRecords($, url, fallbackTitle) {
       return;
     }
 
-    // FALLBACK : ancien mode agrégé si pas de cfg.pages
-    const txtB = extractViewerTextFromConfigNode($cfg);
+    // FALLBACK : mode agrégé si on ne parvient pas à lire cfg.pages
+    const txtB = cfgRaw
+      ? extractViewerTextFromConfigNode({
+          length: 1,
+          text: function () {
+            return cfgRaw;
+          }
+        })
+      : "";
+
     const rawBlockText = htmlToText($block.html() || "");
 
     const content = cleanText(
       [
         txtB,
-        txtA ? txtA.slice(0, 2500) : "",
-        rawBlockText ? rawBlockText.slice(0, 12000) : "",
+        txtA ? txtA.slice(0, 6000) : "",
+        rawBlockText ? rawBlockText.slice(0, 100000) : "",
       ]
         .filter(Boolean)
         .join(" ")
