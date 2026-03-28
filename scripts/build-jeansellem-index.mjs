@@ -9,7 +9,7 @@ const SITEMAP_URL = `${SITE_ROOT}/sitemap.xml`;
 const ONLY_PATH_PREFIX = "/jeansellem/";
 
 const LIMIT = null;
-const MAX_CHARS_PER_RECORD = 30000;
+const MAX_CHARS_PER_RECORD = 120000;
 const CONCURRENCY = 8;
 const FETCH_TIMEOUT_MS = 25000;
 
