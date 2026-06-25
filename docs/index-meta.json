@@ -1,11 +1,11 @@
 {
-  "built_at": "2026-06-25T09:44:35.224Z",
+  "built_at": "2026-06-25T15:15:13.343Z",
   "site_root": "https://www.raphaelleonardlevy.com",
   "sitemap": "https://www.raphaelleonardlevy.com/sitemap.xml",
-  "count": 547,
+  "count": 531,
   "sections": {
-    "popup": 236,
-    "viewer": 301,
+    "popup": 233,
+    "viewer": 288,
     "page": 10
   }
 }
